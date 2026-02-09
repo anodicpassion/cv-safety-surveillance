@@ -6,7 +6,7 @@ classNames = ['Hardhat', 'Mask', 'NO-Hardhat', 'NO-Mask', 'NO-Safety Vest', 'Per
               'Safety Vest', 'machinery', 'vehicle']
 
 model = YOLO('../models/ppe.pt')
-
+print(model.device)
 video_folder = '../demo'
 video_files = [f for f in os.listdir(video_folder) if f.endswith(('.mp4', '.avi', '.mov'))]
 
@@ -19,8 +19,7 @@ for video_file in video_files:
         if not ret:
             break
         
-        results = model(frame)
-        
+        results = model(frame, device='mps')
         for result in results:
             boxes = result.boxes
             for box in boxes:
