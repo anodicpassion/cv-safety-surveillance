@@ -25,7 +25,7 @@ CONTACTS_CSV = os.path.join(BASE_DIR, "contacts.csv")
 KNOWN_DIR    = os.path.join(BASE_DIR, "known")
 VERIFY_URL   = "https://7cbb-34-171-105-180.ngrok-free.app/verify"
 SMS_URL      = "https://www.fast2sms.com/dev/bulkV2"
-SMS_AUTH     = "V05YTRzQKZCnqD9Jw3o1SutrGIdmgP8BlMhUxfOiyWcakF2s4e2LkDOPN3xRGb1mVTiE85yz7w46I0dJ"
+SMS_AUTH     = "FAST_2_SMS_API_KEY"
 
 PPE_CLASSES = [
     'Hardhat', 'Mask', 'NO-Hardhat', 'NO-Mask', 'NO-Safety Vest',
