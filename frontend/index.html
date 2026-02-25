@@ -1,0 +1,697 @@
+<!DOCTYPE html>
+<html class="dark" lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PPE Monitoring • Live Dashboard</title>
+
+    <script src="https://cdn.tailwindcss.com?plugins=forms"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0" rel="stylesheet" />
+
+    <script>
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        primary: { DEFAULT: "#0d93f2", dark: "#0b7bd1" },
+                        success: { DEFAULT: "#10b981" },
+                        warning: { DEFAULT: "#f59e0b" },
+                        danger:  { DEFAULT: "#ef4444" },
+                    },
+                    fontFamily: {
+                        sans: ["Inter", "system-ui", "sans-serif"],
+                        mono: ["JetBrains Mono", "monospace"],
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        .material-symbols-rounded {
+            font-variation-settings: 'FILL' 0,'wght' 400,'GRAD' 0,'opsz' 24;
+            vertical-align: middle; line-height: 1;
+        }
+        .icon-fill { font-variation-settings: 'FILL' 1,'wght' 400,'GRAD' 0,'opsz' 24; }
+
+        #stream-panel {
+            position: relative; flex: 1 1 auto; min-height: 420px;
+            background: linear-gradient(135deg, #0f172a, #1e293b);
+            border-radius: 1rem; overflow: hidden;
+            border: 1px solid rgba(255,255,255,.08);
+        }
+        #video-stream { display: block; width: 100%; height: 100%; object-fit: contain; }
+        #video-stream.stream-hidden { visibility: hidden; }
+
+        .cam-card {
+            flex-shrink: 0; width: 200px; border-radius: .75rem;
+            border: 2px solid transparent; background: rgba(30,41,59,.7);
+            cursor: pointer; transition: transform .15s, box-shadow .15s, border-color .15s; overflow: hidden;
+        }
+        .cam-card:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,.3); }
+        .cam-card.active { border-color: #0d93f2; }
+        .cam-thumb { width: 100%; aspect-ratio: 16/9; object-fit: cover; background: #0f172a; display: block; }
+        .cam-thumb-placeholder { width: 100%; aspect-ratio: 16/9; background: #0f172a; display: flex; align-items: center; justify-content: center; color: #475569; }
+
+        #camera-row::-webkit-scrollbar { height: 5px; }
+        #camera-row::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+
+        .glass {
+            background: rgba(255,255,255,.05); backdrop-filter: blur(12px);
+            border: 1px solid rgba(255,255,255,.1); border-radius: .875rem; padding: 1.25rem;
+        }
+        .alert-row { border-radius: .75rem; padding: .875rem 1rem; }
+
+        /* Image preview */
+        #img-preview-wrap { display: none; }
+        #img-preview-wrap.show { display: block; }
+        .drop-zone {
+            border: 2px dashed #334155; border-radius: .75rem;
+            padding: 2rem 1rem; text-align: center; cursor: pointer;
+            transition: border-color .2s, background .2s;
+        }
+        .drop-zone:hover, .drop-zone.drag-over { border-color: #0d93f2; background: rgba(13,147,242,.05); }
+
+        /* Toast */
+        #toast {
+            position: fixed; bottom: 1.5rem; right: 1.5rem; z-index: 9999;
+            padding: .75rem 1.25rem; border-radius: .75rem; font-size: .875rem;
+            font-weight: 500; opacity: 0; transform: translateY(12px);
+            transition: opacity .25s, transform .25s; pointer-events: none;
+        }
+        #toast.show { opacity: 1; transform: translateY(0); }
+        #toast.success { background: #064e3b; color: #6ee7b7; border: 1px solid #065f46; }
+        #toast.error   { background: #450a0a; color: #fca5a5; border: 1px solid #7f1d1d; }
+    </style>
+</head>
+
+<body class="bg-slate-950 min-h-screen font-sans text-slate-100 flex flex-col">
+
+<!-- ═══  HEADER  ═══ -->
+<header class="sticky top-0 z-50 border-b border-slate-800 bg-slate-950/90 backdrop-blur px-6 py-3 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-primary to-blue-600 flex items-center justify-center shadow-md">
+            <span class="material-symbols-rounded text-white text-xl">shield</span>
+        </div>
+        <div>
+            <h1 class="text-lg font-semibold leading-tight">PPE Monitoring</h1>
+            <p class="text-xs text-slate-400 flex items-center gap-1.5">
+                <span id="status-dot" class="inline-block w-2 h-2 rounded-full bg-slate-500"></span>
+                <span id="status-text">Connecting…</span>
+            </p>
+        </div>
+    </div>
+    <div class="flex gap-2">
+        <!-- Update Admin -->
+        <button id="btn-update-admin"
+            class="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm font-medium transition"
+            title="Update site admin contact">
+            <span class="material-symbols-rounded text-base">manage_accounts</span>
+            <span class="hidden sm:inline">Update Admin</span>
+        </button>
+        <!-- Register Worker -->
+        <button id="btn-register-worker"
+            class="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-white text-sm font-medium transition"
+            title="Register new worker">
+            <span class="material-symbols-rounded text-base">person_add</span>
+            <span class="hidden sm:inline">Register Worker</span>
+        </button>
+        <!-- Add Camera -->
+        <button id="btn-add-camera"
+            class="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary hover:bg-primary-dark text-white text-sm font-medium transition">
+            <span class="material-symbols-rounded text-base">add</span>
+            <span class="hidden sm:inline">Add Camera</span>
+        </button>
+        <button id="btn-refresh" class="p-2 rounded-lg hover:bg-slate-800 text-slate-400 transition" title="Refresh">
+            <span class="material-symbols-rounded">refresh</span>
+        </button>
+    </div>
+</header>
+
+<!-- ═══  MAIN  ═══ -->
+<main class="flex-1 flex overflow-hidden">
+    <!-- Left column -->
+    <section class="flex-1 flex flex-col gap-4 p-5 min-w-0 overflow-y-auto">
+        <div id="stream-panel">
+            <img id="video-stream" class="stream-hidden" src="" alt="Live feed">
+            <div id="placeholder" class="absolute inset-0 flex flex-col items-center justify-center text-slate-500">
+                <span class="material-symbols-rounded text-7xl opacity-30 mb-4">videocam_off</span>
+                <p class="text-base font-medium">No camera selected</p>
+                <p class="text-sm mt-1 opacity-70">Pick a camera below or add one.</p>
+            </div>
+            <div id="stream-loading" class="hidden absolute inset-0 flex flex-col items-center justify-center text-slate-400 bg-slate-950/70 backdrop-blur-sm">
+                <div class="w-10 h-10 border-2 border-primary border-t-transparent rounded-full animate-spin mb-3"></div>
+                <p class="text-sm" id="loading-msg">Connecting to camera…</p>
+            </div>
+            <div id="stream-error" class="hidden absolute inset-0 flex flex-col items-center justify-center text-slate-400">
+                <span class="material-symbols-rounded text-5xl opacity-40 mb-3">broken_image</span>
+                <p class="text-sm font-medium">Stream unavailable</p>
+                <button id="btn-retry" class="mt-3 px-4 py-1.5 rounded-lg bg-primary/20 hover:bg-primary/40 text-primary text-sm transition">Retry</button>
+            </div>
+            <div id="live-badge" class="hidden absolute top-4 left-4 flex items-center gap-1.5 bg-danger/90 text-white text-xs font-bold px-2.5 py-1 rounded-full backdrop-blur-sm">
+                <span class="material-symbols-rounded text-sm icon-fill animate-pulse">fiber_manual_record</span> LIVE
+            </div>
+            <div id="cam-name-badge" class="hidden absolute bottom-3 left-3 bg-black/60 text-white text-xs px-2.5 py-1 rounded-lg font-mono backdrop-blur-sm"></div>
+        </div>
+
+        <div class="bg-slate-900/60 rounded-xl border border-slate-800 p-4">
+            <p class="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-2">
+                <span class="material-symbols-rounded text-primary text-base">videocam</span> Available Cameras
+            </p>
+            <div id="camera-row" class="flex gap-3 overflow-x-auto pb-1"></div>
+        </div>
+    </section>
+
+    <!-- Sidebar -->
+    <aside class="w-88 min-w-[22rem] border-l border-slate-800 flex flex-col overflow-hidden bg-slate-900/50">
+        <div class="p-5 border-b border-slate-800 space-y-3">
+            <h2 class="font-semibold flex items-center gap-2 text-slate-200">
+                <span class="material-symbols-rounded text-primary">analytics</span> Compliance Overview
+            </h2>
+            <div class="glass">
+                <div class="flex justify-between items-center">
+                    <div>
+                        <p class="text-xs text-slate-400 uppercase tracking-wide mb-0.5">Detected Workers</p>
+                        <p id="total-workers" class="text-3xl font-bold">—</p>
+                    </div>
+                    <span class="material-symbols-rounded text-5xl text-primary/20 icon-fill">groups</span>
+                </div>
+            </div>
+            <div class="glass border-l-4 border-success">
+                <div class="flex justify-between items-center">
+                    <div>
+                        <p class="text-xs text-success uppercase tracking-wide mb-0.5">Compliant</p>
+                        <p id="compliant-count" class="text-3xl font-bold text-success">—</p>
+                    </div>
+                    <span class="material-symbols-rounded text-5xl text-success/20 icon-fill">check_circle</span>
+                </div>
+            </div>
+            <div class="glass border-l-4 border-danger">
+                <div class="flex justify-between items-center">
+                    <div>
+                        <p class="text-xs text-danger uppercase tracking-wide mb-0.5">Non-Compliant</p>
+                        <p id="noncompliant-count" class="text-3xl font-bold text-danger">—</p>
+                    </div>
+                    <span class="material-symbols-rounded text-5xl text-danger/20 icon-fill">warning</span>
+                </div>
+            </div>
+        </div>
+        <div class="flex-1 flex flex-col min-h-0">
+            <div class="px-5 py-3 border-b border-slate-800">
+                <h2 class="font-semibold flex items-center gap-2 text-slate-200">
+                    <span class="material-symbols-rounded text-danger">notifications_active</span> Recent Violations
+                </h2>
+            </div>
+            <div id="alert-log" class="flex-1 overflow-y-auto p-4 space-y-2 text-sm"></div>
+        </div>
+    </aside>
+</main>
+
+<!-- ═══  FOOTER  ═══ -->
+<footer class="h-10 border-t border-slate-800 bg-slate-950/80 px-6 flex items-center justify-between text-xs text-slate-500">
+    <span>Model: <span class="text-primary font-medium">YOLOv8</span></span>
+    <span id="backend-time">—</span>
+</footer>
+
+
+<!-- ═══════════════════════════════════════════════════
+     MODAL: Add Camera
+═══════════════════════════════════════════════════ -->
+<div id="modal-add-camera" class="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 hidden">
+    <div class="bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl w-full max-w-md mx-4">
+        <div class="p-5 border-b border-slate-700 flex justify-between items-center">
+            <h3 class="font-semibold text-lg flex items-center gap-2">
+                <span class="material-symbols-rounded text-primary">videocam</span> Add Camera
+            </h3>
+            <button class="modal-close text-slate-400 hover:text-white transition"><span class="material-symbols-rounded">close</span></button>
+        </div>
+        <form id="add-camera-form" class="p-5 space-y-4">
+            <div>
+                <label class="block text-sm font-medium mb-1">Name <span class="text-danger">*</span></label>
+                <input name="name" required placeholder="Entrance Cam A"
+                    class="w-full px-3.5 py-2.5 rounded-lg bg-slate-800 border border-slate-600 focus:outline-none focus:border-primary text-sm" />
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-1">URL / Source <span class="text-danger">*</span></label>
+                <input name="url" required placeholder="rtsp://… or http://… or 0"
+                    class="w-full px-3.5 py-2.5 rounded-lg bg-slate-800 border border-slate-600 focus:outline-none focus:border-primary text-sm font-mono" />
+                <p class="text-xs text-slate-500 mt-1">Use <code>0</code> for the default webcam.</p>
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-1">Description</label>
+                <textarea name="description" rows="2" placeholder="Optional notes…"
+                    class="w-full px-3.5 py-2.5 rounded-lg bg-slate-800 border border-slate-600 focus:outline-none focus:border-primary text-sm"></textarea>
+            </div>
+            <div class="flex justify-end gap-3 pt-1">
+                <button type="button" class="modal-close px-4 py-2 rounded-lg border border-slate-600 hover:bg-slate-800 text-sm transition">Cancel</button>
+                <button type="submit" class="px-5 py-2 rounded-lg bg-primary hover:bg-primary-dark text-white text-sm font-medium transition">Add</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════
+     MODAL: Register Worker
+═══════════════════════════════════════════════════ -->
+<div id="modal-register-worker" class="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 hidden">
+    <div class="bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl w-full max-w-md mx-4">
+        <div class="p-5 border-b border-slate-700 flex justify-between items-center">
+            <h3 class="font-semibold text-lg flex items-center gap-2">
+                <span class="material-symbols-rounded text-emerald-400">person_add</span> Register Worker
+            </h3>
+            <button class="modal-close text-slate-400 hover:text-white transition"><span class="material-symbols-rounded">close</span></button>
+        </div>
+        <form id="register-worker-form" class="p-5 space-y-4">
+            <!-- Name -->
+            <div>
+                <label class="block text-sm font-medium mb-1">Full Name <span class="text-danger">*</span></label>
+                <input name="name" required placeholder="e.g. Rahul Sharma"
+                    class="w-full px-3.5 py-2.5 rounded-lg bg-slate-800 border border-slate-600 focus:outline-none focus:border-emerald-500 text-sm" />
+                <p class="text-xs text-slate-500 mt-1">Spaces are fine — stored as <code>Rahul_Sharma.png</code></p>
+            </div>
+            <!-- Number -->
+            <div>
+                <label class="block text-sm font-medium mb-1">Mobile Number <span class="text-danger">*</span></label>
+                <input name="number" required placeholder="10-digit number" maxlength="10"
+                    pattern="\d{10}" inputmode="numeric"
+                    class="w-full px-3.5 py-2.5 rounded-lg bg-slate-800 border border-slate-600 focus:outline-none focus:border-emerald-500 text-sm font-mono" />
+            </div>
+            <!-- Image upload -->
+            <div>
+                <label class="block text-sm font-medium mb-1">Face Photo <span class="text-danger">*</span></label>
+                <div id="worker-drop-zone" class="drop-zone" onclick="document.getElementById('worker-img-input').click()">
+                    <span class="material-symbols-rounded text-3xl text-slate-500 mb-2 block">add_a_photo</span>
+                    <p class="text-sm text-slate-400">Click or drag &amp; drop a photo here</p>
+                    <p class="text-xs text-slate-600 mt-1">JPG, PNG, WEBP — clear face, good lighting</p>
+                </div>
+                <input type="file" id="worker-img-input" name="image" accept="image/*" class="hidden" required>
+                <!-- Preview -->
+                <div id="img-preview-wrap" class="mt-3 relative">
+                    <img id="img-preview" src="" alt="Preview"
+                        class="w-full max-h-48 object-cover rounded-lg border border-slate-700">
+                    <button type="button" id="btn-clear-img"
+                        class="absolute top-2 right-2 bg-black/60 hover:bg-black/80 text-white rounded-full p-1 transition">
+                        <span class="material-symbols-rounded text-sm">close</span>
+                    </button>
+                </div>
+            </div>
+
+            <div class="flex justify-end gap-3 pt-1">
+                <button type="button" class="modal-close px-4 py-2 rounded-lg border border-slate-600 hover:bg-slate-800 text-sm transition">Cancel</button>
+                <button type="submit" id="btn-register-submit"
+                    class="flex items-center gap-2 px-5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-medium transition">
+                    <span class="material-symbols-rounded text-base">how_to_reg</span> Register
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════
+     MODAL: Update Admin Contact
+═══════════════════════════════════════════════════ -->
+<div id="modal-update-admin" class="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 hidden">
+    <div class="bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl w-full max-w-sm mx-4">
+        <div class="p-5 border-b border-slate-700 flex justify-between items-center">
+            <h3 class="font-semibold text-lg flex items-center gap-2">
+                <span class="material-symbols-rounded text-amber-400">manage_accounts</span> Update Admin Contact
+            </h3>
+            <button class="modal-close text-slate-400 hover:text-white transition"><span class="material-symbols-rounded">close</span></button>
+        </div>
+        <form id="update-admin-form" class="p-5 space-y-4">
+            <p class="text-sm text-slate-400">
+                The site admin receives PPE violation alerts for <em>all</em> workers.
+                Update the number below to change who gets notified.
+            </p>
+            <div>
+                <label class="block text-sm font-medium mb-1">Admin Name</label>
+                <input name="name" placeholder="Site Admin" value="Site Admin"
+                    class="w-full px-3.5 py-2.5 rounded-lg bg-slate-800 border border-slate-600 focus:outline-none focus:border-amber-500 text-sm" />
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-1">Mobile Number <span class="text-danger">*</span></label>
+                <input name="number" required placeholder="10-digit number" maxlength="10"
+                    pattern="\d{10}" inputmode="numeric"
+                    class="w-full px-3.5 py-2.5 rounded-lg bg-slate-800 border border-slate-600 focus:outline-none focus:border-amber-500 text-sm font-mono" />
+            </div>
+            <div class="flex justify-end gap-3 pt-1">
+                <button type="button" class="modal-close px-4 py-2 rounded-lg border border-slate-600 hover:bg-slate-800 text-sm transition">Cancel</button>
+                <button type="submit"
+                    class="flex items-center gap-2 px-5 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-sm font-medium transition">
+                    <span class="material-symbols-rounded text-base">save</span> Save
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Toast -->
+<div id="toast"></div>
+
+
+<!-- ═══  SCRIPT  ═══ -->
+<script>
+const API = 'http://127.0.0.1:5001';
+
+let selectedUrl = null, retryCount = 0, retryTimer = null, statsTimer = null, alertsTimer = null;
+let thumbTimers = {};
+
+const videoEl       = document.getElementById('video-stream');
+const placeholder   = document.getElementById('placeholder');
+const streamLoading = document.getElementById('stream-loading');
+const streamError   = document.getElementById('stream-error');
+const liveBadge     = document.getElementById('live-badge');
+const camNameBadge  = document.getElementById('cam-name-badge');
+const loadingMsg    = document.getElementById('loading-msg');
+const cameraRow     = document.getElementById('camera-row');
+
+const show = el => el.classList.remove('hidden');
+const hide = el => el.classList.add('hidden');
+const esc  = s => String(s ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const safeHost = url => { try { return new URL(url).hostname; } catch { return url; } };
+
+// ── Toast ──────────────────────────────────────────────
+function showToast(msg, type = 'success') {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.className = `show ${type}`;
+    setTimeout(() => { t.className = type; }, 3000);
+}
+
+// ── Generic modal helpers ─────────────────────────────
+function openModal(id)  { document.getElementById(id).classList.remove('hidden'); }
+function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+
+document.querySelectorAll('.modal-close').forEach(btn => {
+    btn.addEventListener('click', () => {
+        btn.closest('[id^="modal-"]').classList.add('hidden');
+    });
+});
+// Close on backdrop click
+['modal-add-camera','modal-register-worker','modal-update-admin'].forEach(id => {
+    document.getElementById(id).addEventListener('click', e => {
+        if (e.target === document.getElementById(id)) closeModal(id);
+    });
+});
+
+// ── Health ─────────────────────────────────────────────
+async function checkHealth() {
+    try {
+        const d = await fetch(`${API}/api/health`,{cache:'no-store'}).then(r=>r.json());
+        document.getElementById('status-dot').className = 'inline-block w-2 h-2 rounded-full bg-green-400 animate-pulse';
+        document.getElementById('status-text').textContent = d.processing ? 'Monitoring' : 'Online';
+        document.getElementById('backend-time').textContent = new Date(d.timestamp).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+        if (d.active_camera && d.active_camera !== selectedUrl && d.processing)
+            await selectCamera(d.active_camera, d.active_camera, true);
+    } catch {
+        document.getElementById('status-dot').className = 'inline-block w-2 h-2 rounded-full bg-red-500';
+        document.getElementById('status-text').textContent = 'Backend Offline';
+    }
+}
+
+// ── Camera cards ──────────────────────────────────────
+async function renderCameras() {
+    try {
+        const cameras = await fetch(`${API}/api/cameras`,{cache:'no-store'}).then(r=>r.json());
+        cameraRow.innerHTML = '';
+        const urls = new Set(cameras.map(c=>c.url));
+        Object.keys(thumbTimers).forEach(u=>{ if(!urls.has(u)){clearInterval(thumbTimers[u]);delete thumbTimers[u];} });
+        if (!cameras.length) {
+            cameraRow.innerHTML = `<p class="text-slate-500 text-sm italic py-4 w-full text-center">No cameras yet — click "Add Camera"</p>`;
+            return;
+        }
+        cameras.forEach(cam => buildCamCard(cam));
+    } catch(e) {
+        cameraRow.innerHTML = `<p class="text-red-400 text-sm py-4">${esc(e.message)}</p>`;
+    }
+}
+
+function buildCamCard(cam) {
+    const isActive = cam.url === selectedUrl;
+    const card = document.createElement('div');
+    card.className = `cam-card${isActive?' active':''}`;
+    card.dataset.url = cam.url;
+    const thumbId = `thumb-${btoa(cam.url).replace(/[^a-z0-9]/gi,'')}`;
+    card.innerHTML = `
+      <div class="cam-thumb-placeholder" id="placeholder-${thumbId}">
+        <span class="material-symbols-rounded text-3xl opacity-40">videocam</span>
+      </div>
+      <img id="${thumbId}" class="cam-thumb hidden" alt="${esc(cam.name)} thumbnail">
+      <div class="px-3 py-2.5">
+        <p class="text-sm font-semibold truncate">${esc(cam.name)}</p>
+        <p class="text-xs text-slate-400 truncate mt-0.5">${esc(cam.description||safeHost(cam.url))}</p>
+        ${isActive?`<span class="inline-flex items-center gap-1 text-xs text-success mt-1">
+               <span class="material-symbols-rounded text-sm icon-fill">check_circle</span> Active
+             </span>`:''}
+      </div>`;
+    card.addEventListener('click', () => selectCamera(cam.url, cam.name));
+    cameraRow.appendChild(card);
+    if (isActive) startThumbRefresh(cam.url, thumbId);
+}
+
+function startThumbRefresh(url, imgId) {
+    if (thumbTimers[url]) clearInterval(thumbTimers[url]);
+    const refresh = () => {
+        const img = document.getElementById(imgId);
+        const ph  = document.getElementById(`placeholder-${imgId}`);
+        if (!img) return;
+        const tmp = new Image();
+        tmp.onload = () => { img.src = tmp.src; img.classList.remove('hidden'); if (ph) ph.style.display='none'; };
+        tmp.src = `${API}/api/snapshot?t=${Date.now()}`;
+    };
+    refresh();
+    thumbTimers[url] = setInterval(refresh, 2000);
+}
+
+// ── Select camera ─────────────────────────────────────
+async function selectCamera(url, name, skipPost=false) {
+    if (!url || (url===selectedUrl && !skipPost)) return;
+    if (!skipPost) {
+        try {
+            const r = await fetch(`${API}/api/select_camera`,{method:'POST',
+                headers:{'Content-Type':'application/json'},body:JSON.stringify({url})});
+            if (!r.ok) throw new Error((await r.json()).error||'select failed');
+        } catch(e) { alert('Could not start camera:\n'+e.message); return; }
+    }
+    selectedUrl = url; retryCount = 0; clearTimeout(retryTimer);
+    hide(placeholder); hide(streamError);
+    loadingMsg.textContent = 'Connecting to camera…';
+    show(streamLoading); hide(liveBadge);
+    camNameBadge.textContent = name||url; show(camNameBadge);
+    videoEl.classList.add('stream-hidden');
+    renderCameras(); startPolling(); connectStream();
+}
+
+// ── MJPEG stream ──────────────────────────────────────
+function connectStream() {
+    clearTimeout(retryTimer);
+    videoEl.onload = null; videoEl.onerror = null;
+    videoEl.onerror = () => {
+        videoEl.classList.add('stream-hidden'); hide(liveBadge); hide(streamLoading); show(streamError); scheduleRetry();
+    };
+    videoEl.onload = () => {
+        retryCount = 0; videoEl.classList.remove('stream-hidden');
+        hide(streamLoading); hide(streamError); hide(placeholder); show(liveBadge);
+        const card = [...cameraRow.querySelectorAll('.cam-card')].find(c=>c.dataset.url===selectedUrl);
+        if (card) { const tid=`thumb-${btoa(selectedUrl).replace(/[^a-z0-9]/gi,'')}`; startThumbRefresh(selectedUrl,tid); }
+    };
+    videoEl.src = `${API}/video_feed?t=${Date.now()}`;
+}
+
+function scheduleRetry() {
+    if (!selectedUrl) return;
+    const delay = Math.min(1500*Math.pow(1.6,retryCount),20000); retryCount++;
+    loadingMsg.textContent = `Reconnecting… (attempt ${retryCount})`;
+    retryTimer = setTimeout(()=>{ hide(streamError); show(streamLoading); connectStream(); }, delay);
+}
+document.getElementById('btn-retry').onclick = () => { retryCount=0; hide(streamError); show(streamLoading); connectStream(); };
+
+// ── Stats & Alerts ─────────────────────────────────────
+async function updateStats() {
+    try {
+        const d = await fetch(`${API}/api/stats`,{cache:'no-store'}).then(r=>r.json());
+        document.getElementById('total-workers').textContent = d.total_workers??'—';
+        document.getElementById('compliant-count').textContent = d.compliant??'—';
+        document.getElementById('noncompliant-count').textContent = d.non_compliant??'—';
+    } catch {}
+}
+
+async function updateAlerts() {
+    try {
+        const alerts = await fetch(`${API}/api/alerts`,{cache:'no-store'}).then(r=>r.json());
+        const log = document.getElementById('alert-log');
+        log.innerHTML = '';
+        if (!alerts.length) {
+            log.innerHTML=`<p class="text-slate-500 text-sm text-center py-8 opacity-70">No violations detected</p>`; return;
+        }
+        alerts.slice(0,3).forEach(a => {
+            const crit  = a.status?.toLowerCase()==='critical';
+            const color = crit?'border-red-500 bg-red-950/30':'border-yellow-500 bg-yellow-950/30';
+            const tc    = crit?'text-red-400':'text-yellow-400';
+            const row   = document.createElement('div');
+            row.className = `alert-row border-l-4 ${color}`;
+            row.innerHTML = `
+              <div class="flex justify-between text-xs mb-1">
+                <span class="font-semibold ${tc} uppercase">${esc(a.status||'Alert')}</span>
+                <span class="font-mono text-slate-500">${esc(a.timestamp)}</span>
+              </div>
+              <p class="font-medium text-slate-200">${esc(a.type||'PPE Violation')}</p>
+              <p class="text-xs text-slate-400 mt-0.5">Worker: ${esc(a.person_name||'Unknown')}</p>
+              <p class="text-xs text-slate-500 mt-0.5">Conf: ${esc(a.confidence||'—')}</p>`;
+            log.appendChild(row);
+        });
+        if (alerts.length > 3) {
+            const hint = document.createElement('p');
+            hint.className = 'text-xs text-slate-600 text-center pt-2 opacity-80';
+            hint.textContent = `Showing latest 3 of ${alerts.length} violations`;
+            log.appendChild(hint);
+        }
+    } catch {}
+}
+
+function startPolling() {
+    clearInterval(statsTimer); clearInterval(alertsTimer);
+    updateStats(); updateAlerts();
+    statsTimer = setInterval(updateStats,3000);
+    alertsTimer = setInterval(updateAlerts,5000);
+}
+
+// ── ADD CAMERA modal ─────────────────────────────────
+document.getElementById('btn-add-camera').onclick = () => openModal('modal-add-camera');
+document.getElementById('add-camera-form').onsubmit = async e => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(e.target));
+    if (!data.name?.trim()||!data.url?.trim()) { alert('Name and URL are required.'); return; }
+    try {
+        const r = await fetch(`${API}/api/cameras`,{method:'POST',
+            headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+        if (r.ok) { closeModal('modal-add-camera'); e.target.reset(); renderCameras(); showToast('Camera added!'); }
+        else { const err=await r.json(); alert(err.error||'Failed to add camera'); }
+    } catch(e) { alert('Network error: '+e.message); }
+};
+
+// ── REGISTER WORKER modal ──────────────────────────────
+document.getElementById('btn-register-worker').onclick = () => openModal('modal-register-worker');
+
+// Image drop zone
+const dropZone   = document.getElementById('worker-drop-zone');
+const imgInput   = document.getElementById('worker-img-input');
+const imgPreview = document.getElementById('img-preview');
+const previewWrap= document.getElementById('img-preview-wrap');
+
+imgInput.addEventListener('change', () => {
+    const file = imgInput.files[0];
+    if (!file) return;
+    const url = URL.createObjectURL(file);
+    imgPreview.src = url;
+    previewWrap.classList.add('show');
+    dropZone.style.display = 'none';
+});
+
+document.getElementById('btn-clear-img').onclick = () => {
+    imgInput.value = '';
+    imgPreview.src = '';
+    previewWrap.classList.remove('show');
+    dropZone.style.display = '';
+};
+
+dropZone.addEventListener('dragover',  e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => {
+    e.preventDefault(); dropZone.classList.remove('drag-over');
+    const file = e.dataTransfer.files[0];
+    if (!file || !file.type.startsWith('image/')) return;
+    const dt = new DataTransfer(); dt.items.add(file); imgInput.files = dt.files;
+    imgPreview.src = URL.createObjectURL(file);
+    previewWrap.classList.add('show'); dropZone.style.display = 'none';
+});
+
+document.getElementById('register-worker-form').onsubmit = async e => {
+    e.preventDefault();
+    const form = e.target;
+    const btn  = document.getElementById('btn-register-submit');
+    const fd   = new FormData(form);
+
+    if (!fd.get('name')?.trim() || !fd.get('number')?.trim() || !fd.get('image')?.size) {
+        showToast('Please fill in all fields and upload a photo.','error'); return;
+    }
+    if (!/^\d{10}$/.test(fd.get('number'))) {
+        showToast('Enter a valid 10-digit mobile number.','error'); return;
+    }
+
+    btn.disabled = true;
+    btn.innerHTML = '<span class="material-symbols-rounded text-base animate-spin">sync</span> Saving…';
+
+    try {
+        const r = await fetch(`${API}/api/register_worker`, { method:'POST', body: fd });
+        const data = await r.json();
+        if (r.ok) {
+            closeModal('modal-register-worker');
+            form.reset();
+            previewWrap.classList.remove('show');
+            dropZone.style.display = '';
+            showToast(data.message || 'Worker registered!', 'success');
+        } else {
+            showToast(data.error || 'Registration failed.', 'error');
+        }
+    } catch(err) {
+        showToast('Network error: '+err.message,'error');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<span class="material-symbols-rounded text-base">how_to_reg</span> Register';
+    }
+};
+
+// Reset image preview when modal is closed
+document.getElementById('modal-register-worker').addEventListener('click', e => {
+    if (e.target === document.getElementById('modal-register-worker') ||
+        e.target.closest('.modal-close')) {
+        imgInput.value = '';
+        imgPreview.src = '';
+        previewWrap.classList.remove('show');
+        dropZone.style.display = '';
+    }
+});
+
+// ── UPDATE ADMIN modal ─────────────────────────────────
+document.getElementById('btn-update-admin').onclick = async () => {
+    // Pre-fill current admin number hint
+    try {
+        const c = await fetch(`${API}/api/contacts`,{cache:'no-store'}).then(r=>r.json());
+        if (c.admin) {
+            const numField = document.querySelector('#update-admin-form [name="number"]');
+            numField.placeholder = `Current: ****${c.admin}`;
+        }
+    } catch {}
+    openModal('modal-update-admin');
+};
+
+document.getElementById('update-admin-form').onsubmit = async e => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const name   = fd.get('name')?.trim()   || 'Site Admin';
+    const number = fd.get('number')?.trim() || '';
+    if (!/^\d{10}$/.test(number)) { showToast('Enter a valid 10-digit mobile number.','error'); return; }
+    try {
+        const r = await fetch(`${API}/api/update_admin`,{method:'POST',
+            headers:{'Content-Type':'application/json'},body:JSON.stringify({name,number})});
+        const data = await r.json();
+        if (r.ok) { closeModal('modal-update-admin'); e.target.reset(); showToast(data.message||'Admin updated!','success'); }
+        else { showToast(data.error||'Update failed.','error'); }
+    } catch(err) { showToast('Network error: '+err.message,'error'); }
+};
+
+// ── Init ──────────────────────────────────────────────
+document.getElementById('btn-refresh').onclick = renderCameras;
+document.getElementById('alert-log').innerHTML =
+    `<p class="text-slate-500 text-sm text-center py-8 opacity-70">Select a camera to view alerts</p>`;
+checkHealth(); renderCameras();
+setInterval(checkHealth,7000); setInterval(renderCameras,30000);
+</script>
+</body>
+</html>
